@@ -670,13 +670,67 @@ with st.sidebar:
             st.write(recap)
 
 
-st.markdown("## 1️⃣ Define Your ICP / Niche")
+st.markdown("## 1️⃣ Select Your ICP / Niche")
 
-query = st.text_area(
-    "Describe the kind of companies you want to target (industry, size, geography, etc.):",
-    placeholder="Example: 'US-based cybersecurity managed service providers (MSSPs) between $10M–$100M revenue, mid-market, with enterprise customers.'",
-    height=120,
+# Full detailed ICP definitions
+cyber_icp = """
+US-based cybersecurity operators between $10M–$150M in annual revenue.
+Focus on: MSSPs, MDR providers, SOC-as-a-Service, incident response firms,
+penetration testing companies, vCISO providers, threat intelligence platforms,
+identity and access management (IAM), OT security, and managed EDR/XDR.
+
+Target firms should have:
+- established enterprise or mid-market customer base
+- recurring revenue model (managed services or SaaS security)
+- limited geographic footprint (consolidation upside)
+- specialized IP, tooling, or certifications (SOC 2 / ISO 27001 / PCI DSS)
+- opportunities for platform expansion or tuck-in integration
+
+Exclude:
+- consumer antivirus
+- micro agencies
+- early-stage startups (<$3M revenue)
+"""
+
+medtech_icp = """
+US-based MedTech and HealthTech companies between $10M–$150M in annual revenue.
+Focus on: medical devices, wearables, digital diagnostics, telehealth platforms,
+remote patient monitoring (RPM), imaging software, surgical tools,
+biometric data platforms, robotics-assisted systems, and clinical workflow SaaS.
+
+Target firms should have:
+- FDA-cleared or FDA pathway products (510k, De Novo, PMA)
+- strong reimbursement alignment or CPT coding advantage
+- established hospital/clinic customer base
+- recurring device, consumable, or SaaS revenue
+
+Exclude:
+- pre-FDA startups
+- biotech research firms
+- pharma-only companies
+"""
+
+icp_choice = st.radio(
+    "Choose an industry:",
+    ["Cybersecurity", "MedTech", "Custom"],
+    horizontal=True,
 )
+
+if icp_choice == "Cybersecurity":
+    query = cyber_icp.strip()
+elif icp_choice == "MedTech":
+    query = medtech_icp.strip()
+else:
+    query = st.text_area(
+        "Enter your ICP / niche (industry, size, geography):",
+        placeholder="Describe your custom target niche...",
+        height=140,
+    )
+
+st.text_area("Your ICP definition:", query, height=180, disabled=True)
+
+num_companies = st.slider("Approx. number of companies to find:", 5, 30, 10)
+
 
 num_companies = st.slider("Approx. number of companies to find:", 5, 30, 10)
 
