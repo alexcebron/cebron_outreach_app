@@ -723,16 +723,28 @@ else:
         height=140,
     )
 
-st.text_area("Your ICP definition:", query, height=180, disabled=True)
+st.text_area("Your ICP definition:", query, height=180, disabled=True, key="icp_display")
 
-num_companies = st.slider("Approx. number of companies to find:", 5, 30, 10)
+num_companies = st.slider(
+    "Approx. number of companies to find:",
+    5,
+    30,
+    10,
+    key="num_companies_slider",
+)
 
 col_search, col_clear = st.columns([3, 1])
 
 with col_search:
-    run_search = st.button("🔍 Search Companies + Contacts")
+    run_search = st.button(
+        "🔍 Search Companies + Contacts",
+        key="search_companies_button",
+    )
 with col_clear:
-    clear_results = st.button("Clear Last Search Results")
+    clear_results = st.button(
+        "Clear Last Search Results",
+        key="clear_results_button",
+    )
 
 
 if clear_results:
