@@ -56,42 +56,31 @@ Your job in THIS MODE:
        * M&A
        * Corporate development
        * Strategic partnerships
-       * Or high-level financial / strategic decisions (CFO, Head of Strategy, etc.)
+       * Or high-level financial / strategic decisions (CFO, Head of Strategy, CEO / Founder for mid-market companies)
    - That contact's:
        * Name
        * Title
        * LinkedIn URL
        * Email (ONLY if it is confidently available from a public, legitimate source – otherwise leave blank).
-3. Return results in JSON strictly following the schema.
-"""
 
+3. IMPORTANT CONSTRAINTS:
+   - Do NOT invent or guess URLs.
+   - Only return a company LinkedIn URL if you can find an actual linkedin.com/company/... page for that company.
+   - Only return a contact LinkedIn URL if you can find an actual linkedin.com/in/... profile that clearly matches the contact.
+   - If you are not reasonably confident, leave linkedin_url and email BLANK rather than guessing.
+
+4. Return results in JSON strictly following the schema.
+"""
 
 SYSTEM_INSTRUCTIONS_MESSAGE = """
-You are an AI assistant helping generate hyper-targeted, concise LinkedIn connection notes
-for senior executives about strategic acquisitions.
-
-Your job:
-1. Read the company profile and the contact's background.
-2. Write a short, natural, non-salesy LinkedIn connection message that:
-   - references something specific about the company or contact's role
-   - briefly indicates that we focus on strategic acquisitions / roll-ups
-   - suggests that it may be relevant to them WITHOUT sounding like a canned pitch
-   - is 280 characters or less
-   - has no emojis, no exclamation marks overused, and no fake flattery.
-
-Tone:
-- Professional, calm, and slightly curious.
-- No hard CTAs like "book a call" – more like "open to comparing notes" or
-  "happy to share what we're seeing in your space."
+(Reserved for future use – message generation is handled by deterministic templates in the app code.)
 """
-
 
 SYSTEM_INSTRUCTIONS_SUMMARIZE = """
 You are a concise summarizer. Given a bunch of text or structured info,
 rewrite it into a clean, factual, short summary used to personalize outreach.
 Max 1-2 sentences. No fluff, no emojis.
 """
-
 
 SYSTEM_INSTRUCTIONS_HISTORY_RECAP = """
 You are acting as an internal analyst reading a history of outreach and results.
@@ -126,9 +115,7 @@ def parse_domain(website_or_url: str) -> str:
         parsed = urlparse(website_or_url)
         netloc = parsed.netloc
         if not netloc:
-            # maybe the input is just 'example.com'
             netloc = website_or_url.split("/")[0]
-        # strip 'www.'
         if netloc.startswith("www."):
             netloc = netloc[4:]
         return netloc
@@ -174,8 +161,7 @@ def openai_chat_json(
     temperature: float = 0.4,
 ):
     """
-    Generic helper for OpenAI ChatCompletions returning JSON-like structures,
-    using the new 'response_format' mechanism.
+    Generic helper for OpenAI ChatCompletions returning JSON-like structures.
     """
     kwargs = {
         "model": "gpt-5.1",
@@ -254,11 +240,15 @@ Find approximately {num_companies} companies that match this query or niche:
 
 For each company:
 - Provide the fields required by the JSON schema (companies[].name, website, industry, location, revenue, linkedin_url, contact).
+- Only provide LinkedIn URLs that you can actually find and match. If you are not sure, leave linkedin_url BLANK instead of guessing.
 
 Focus strongly on B2B operators that might fit a mid-market roll-up strategy
 $10M - $500M revenue, or similar scale, when possible.
 """
-    schema = {"type": "json_schema", "json_schema": {"name": "company_search_result", "schema": COMPANY_SEARCH_SCHEMA}}
+    schema = {
+        "type": "json_schema",
+        "json_schema": {"name": "company_search_result", "schema": COMPANY_SEARCH_SCHEMA},
+    }
 
     resp_data = openai_chat_json(
         system=SYSTEM_INSTRUCTIONS_COMPANY,
@@ -273,99 +263,121 @@ $10M - $500M revenue, or similar scale, when possible.
 
 
 # ------------------------
-# AI: MESSAGE GENERATION
+# INDUSTRY HELPERS
 # ------------------------
 
-def ai_generate_message(company: dict, profile_owner: str = DEFAULT_PROFILE_OWNER):
+def normalize_industry(i: str) -> str:
     """
-    Generate a short LinkedIn connection note using the AI-based
-    system instructions and company/contact info.
+    Rough normalization into the categories we're generally interested in.
     """
-    name = company.get("name", "")
-    industry = company.get("industry", "")
-    location = company.get("location", "")
-    revenue = company.get("revenue", "")
-    contact_name = company.get("contact_name", "")
-    contact_title = company.get("contact_title", "")
-
-    user_prompt = f"""
-We are {profile_owner} at Cebron Group, a mid-market M&A advisory and roll-up platform builder.
-
-Company:
-- Name: {name}
-- Industry: {industry}
-- Location: {location}
-- Approx. revenue/size: {revenue}
-
-Contact:
-- Name: {contact_name}
-- Title: {contact_title}
-
-Write a concise LinkedIn connection note (under 280 characters, no emojis) that:
-- Mentions something specific about the company or their role
-- Indicates that we do strategic acquisitions / roll-up work
-- Suggests it could be relevant for them
-- Does not sound like a mass blast or pushy sales pitch
-"""
-
-    msg = openai_chat_json(
-        system=SYSTEM_INSTRUCTIONS_MESSAGE,
-        user=user_prompt,
-        response_format=None,
-        temperature=0.6,
-    )
-
-    msg = (msg or "").strip()
-    if msg.startswith('"') and msg.endswith('"'):
-        msg = msg[1:-1].strip()
-    if msg.startswith("'") and msg.endswith("'"):
-        msg = msg[1:-1].strip()
-
-    if len(msg) > 280:
-        msg = msg[:270].rstrip() + "…"
-
-    msg = " ".join(msg.split())
-    msg = msg.replace("...", ".")
-    while ".." in msg:
-        msg = msg.replace("..", ".")
-
-    msg = msg.replace("?", ".")
-
-    for token in ["http://", "https://", "www."]:
-        if token in msg:
-            msg = msg.split(token)[0].strip()
-    if "@" in msg:
-        msg = msg.split("@")[0].strip()
-
-    return msg
+    if not i:
+        return ""
+    s = i.lower()
+    if "cyber" in s or "security" in s:
+        return "cybersecurity"
+    if "software" in s or "saas" in s:
+        return "software / SaaS"
+    if "health" in s or "med" in s or "life science" in s or "clinic" in s:
+        return "health / medtech / life sciences"
+    if "manufactur" in s or "industrial" in s:
+        return "industrial / manufacturing"
+    if "logistics" in s or "supply chain" in s:
+        return "logistics / supply chain"
+    if "professional services" in s or "consulting" in s:
+        return "professional services"
+    return i
 
 
-def generate_message(company: dict, profile_owner: str = DEFAULT_PROFILE_OWNER):
+def _industry_to_outreach_angle(industry: str) -> str:
+    s = (industry or "").lower()
+    if "cyber" in s or "security" in s:
+        return "mid-market cybersecurity and managed security operators"
+    if "software" in s or "saas" in s:
+        return "software and SaaS platforms"
+    if "health" in s or "med" in s or "clinic" in s:
+        return "health and medtech operators"
+    if "manufactur" in s:
+        return "industrial and manufacturing operators"
+    return f"mid-market operators in {industry}" if industry else "mid-market operators"
+
+
+# ------------------------
+# CONTACT SELECTION HEURISTICS
+# ------------------------
+
+def _score_title_for_acquisitions(title: str) -> int:
     """
-    Fallback simple template-based message if AI is disabled or errors out.
+    Higher score = more likely to be involved in acquisitions / M&A / corp dev.
     """
-    name = company.get("name", "")
-    industry = company.get("industry", "")
-    contact_name = company.get("contact_name", "")
-    contact_title = company.get("contact_title", "")
+    t = (title or "").lower()
 
-    pieces = []
-    if contact_name:
-        pieces.append(f"Hi {contact_name},")
-    else:
-        pieces.append("Hi there,")
+    score = 0
 
-    base = f"I'm {profile_owner} at Cebron Group. We help operators in {industry or 'your space'} explore strategic acquisitions and roll-up strategies."
-    pieces.append(base)
+    # Direct M&A / Corp Dev / Strategy
+    if any(k in t for k in ["corp dev", "corporate development", "corporate strategy"]):
+        score += 70
+    if any(k in t for k in ["m&a", "mergers", "acquisitions"]):
+        score += 60
+    if "strategy" in t and "sales" not in t:
+        score += 25
 
-    role_hint = contact_title.lower() if contact_title else ""
-    if any(k in role_hint for k in ["corp dev", "m&a", "mergers", "acquisitions", "strategy"]):
-        pieces.append("Given your role, I thought it might make sense to connect and share what we're seeing in the market.")
-    else:
-        pieces.append("Thought it might make sense to connect and share what we're seeing in the market.")
+    # Senior finance / C-level
+    if any(k in t for k in ["cfo", "chief financial", "vp finance", "vice president finance", "finance director"]):
+        score += 45
+    if any(k in t for k in ["chief strategy", "chief corporate development"]):
+        score += 50
 
-    msg = " ".join(pieces)
-    return msg
+    # Top leadership – often key decision-maker in mid-market
+    if any(k in t for k in ["ceo", "founder", "co-founder", "owner", "managing director", "president", "coo"]):
+        score += 30
+
+    # Seniority boost
+    if any(k in t for k in ["vp", "vice president", "director", "head of"]):
+        score += 15
+
+    # Penalize lower-level and non-strategic roles
+    if any(k in t for k in ["assistant", "associate", "analyst", "specialist", "coordinator", "representative"]):
+        score -= 15
+    if "intern" in t:
+        score -= 60
+
+    # Penalize pure sales/marketing unless clearly strategic
+    if ("sales" in t or "account executive" in t or "business development" in t) and "strategy" not in t:
+        score -= 20
+    if "marketing" in t and "strategy" not in t:
+        score -= 15
+
+    return score
+
+
+def _choose_best_contact(company: dict):
+    """
+    If we have multiple candidates for a company, pick the best by title score.
+    """
+    if not company:
+        return None
+
+    candidates = []
+    primary = company.get("contact") or {}
+    if primary:
+        candidates.append(primary)
+
+    contact_candidates = company.get("contact_candidates") or []
+    for c in contact_candidates:
+        candidates.append(c)
+
+    if not candidates:
+        return None
+
+    scored = []
+    for c in candidates:
+        title = safe_get(c, "title", "")
+        score = _score_title_for_acquisitions(title)
+        scored.append((score, c))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best_score, best_contact = scored[0]
+    return best_contact, best_score, [c for _, c in scored]
 
 
 # ------------------------
@@ -402,109 +414,121 @@ Be concrete, but concise.
 
 
 # ------------------------
-# INDUSTRY HELPER
+# DETERMINISTIC MESSAGE GENERATION
 # ------------------------
 
-def normalize_industry(i: str) -> str:
-    """
-    Very rough normalization into the categories we're generally interested in.
-    """
-    if not i:
+def _extract_first_name(contact_name: str) -> str:
+    if not contact_name:
         return ""
-    s = i.lower()
-    if "cyber" in s or "security" in s:
-        return "cybersecurity"
-    if "software" in s or "saas" in s:
-        return "software / SaaS"
-    if "health" in s or "med" in s or "life science" in s:
-        return "health / medtech / life sciences"
-    if "manufactur" in s or "industrial" in s:
-        return "industrial / manufacturing"
-    if "logistics" in s or "supply chain" in s:
-        return "logistics / supply chain"
-    if "professional services" in s or "consulting" in s:
-        return "professional services"
-    return i
+    parts = contact_name.split()
+    return parts[0]
 
 
-def industry_to_outreach_angle(industry: str) -> str:
-    s = (industry or "").lower()
-    if "cyber" in s:
-        return "cybersecurity platform and managed security operators"
-    if "software" in s or "saas" in s:
-        return "software and SaaS platforms"
-    if "health" in s or "med" in s:
-        return "health and medtech operators"
-    if "manufactur" in s:
-        return "industrial and manufacturing operators"
-
-    return f"operators in {industry}"
-
-
-# ------------------------
-# CONTACT SELECTION HEURISTICS
-# ------------------------
-
-def _score_title_for_acquisitions(title: str) -> int:
+def _build_outreach_message(company: dict, profile_owner: str = DEFAULT_PROFILE_OWNER) -> str:
     """
-    Higher score = more likely to be involved in acquisitions / M&A / corp dev.
+    Deterministic, template-based outreach message generator.
+
+    Rules:
+    - No compliments (no 'impressed', 'amazing', etc.).
+    - Always reference company and space.
+    - Rotate language via random choice of intros/middles/closers.
+    - Keep under ~280 characters.
     """
-    t = (title or "").lower()
 
-    score = 0
-    if any(k in t for k in ["corp dev", "corporate development", "corporate strategy"]):
-        score += 60
-    if any(k in t for k in ["m&a", "mergers", "acquisitions"]):
-        score += 50
-    if any(k in t for k in ["vp", "vice president", "director", "head of"]):
-        score += 20
-    if "chief" in t or "cfo" in t or "finance" in t:
-        score += 30
-    if "strategy" in t:
-        score += 20
-    if "ceo" in t or "founder" in t or "coo" in t or "president" in t:
-        score += 10
+    firm = "Cebron Group"
 
-    if "assistant" in t or "associate" in t or "analyst" in t:
-        score -= 10
-    if "sales" in t or "marketing" in t and "strategy" not in t:
-        score -= 5
-    if "intern" in t:
-        score -= 50
+    company_name = (
+        company.get("name")
+        or company.get("company_name")
+        or "your company"
+    )
 
-    return score
+    contact_name = company.get("contact_name") or company.get("contact_full_name") or ""
+    first_name = _extract_first_name(contact_name) or ""
+
+    industry = company.get("industry") or ""
+    angle = _industry_to_outreach_angle(industry)
+
+    title = company.get("contact_title") or ""
+
+    # Intros (no compliments)
+    intros = [
+        "{first}, I lead M&A work at {firm} focused on {angle}.",
+        "{first}, I work with {firm} on acquisitions across {angle}.",
+        "Hi {first}, at {firm} I focus on acquisitions and roll-ups in {angle}.",
+        "{first}, I support {firm}'s M&A efforts around {angle}.",
+    ]
+
+    # Company/context lines
+    company_lines = [
+        "I'm mapping out operators like {company} in this space.",
+        "I'm building a view of mid-market groups like {company} across the market.",
+        "{company} came up as I was reviewing platforms in your space.",
+        "I'm cataloguing operators like {company} as we look at potential partners.",
+    ]
+
+    # Role lines
+    if title:
+        role_lines = [
+            "Given your role as {title} at {company}, I thought it made sense to connect.",
+            "Your position as {title} at {company} puts you close to the kinds of decisions we usually support.",
+        ]
+    else:
+        role_lines = [
+            "Given where {company} sits in the market, I thought it made sense to connect.",
+        ]
+
+    # Closers
+    closers = [
+        "Thought it made sense to connect and compare notes.",
+        "Figured a connection could be useful as we both watch where the market is heading.",
+        "If you're open to it, I'd welcome a connection in case our paths cross on deals.",
+        "No agenda on my side—just looking to connect with operators in this ecosystem.",
+    ]
+
+    intro = random.choice(intros).format(
+        first=first_name or "I",
+        firm=firm,
+        angle=angle,
+    )
+
+    company_line = random.choice(company_lines).format(company=company_name)
+    role_line = random.choice(role_lines).format(
+        title=title,
+        company=company_name,
+    )
+
+    middle_options = [
+        f"{company_line} {role_line}",
+        company_line,
+        role_line,
+    ]
+    middle = random.choice(middle_options)
+
+    closer = random.choice(closers)
+
+    msg = f"{intro} {middle} {closer}"
+    msg = " ".join(msg.split())
+
+    if len(msg) > 280:
+        msg = msg[:270].rstrip() + "…"
+
+    return msg
 
 
-def _choose_best_contact(company: dict):
+def ai_generate_message(company: dict, profile_owner: str = DEFAULT_PROFILE_OWNER):
     """
-    If we have multiple candidates for a company, pick the best by title score.
-    Right now we expect a single "contact" field, but we can extend to
-    contact_candidates later.
+    Used when 'Use AI messages' is enabled.
+    Now uses deterministic templates instead of another OpenAI call.
     """
-    if not company:
-        return None
+    return _build_outreach_message(company, profile_owner=profile_owner)
 
-    candidates = []
-    primary = company.get("contact") or {}
-    if primary:
-        candidates.append(primary)
 
-    contact_candidates = company.get("contact_candidates") or []
-    for c in contact_candidates:
-        candidates.append(c)
-
-    if not candidates:
-        return None
-
-    scored = []
-    for c in candidates:
-        title = safe_get(c, "title", "")
-        score = _score_title_for_acquisitions(title)
-        scored.append((score, c))
-
-    scored.sort(key=lambda x: x[0], reverse=True)
-    best_score, best_contact = scored[0]
-    return best_contact, best_score, [c for _, c in scored]
+def generate_message(company: dict, profile_owner: str = DEFAULT_PROFILE_OWNER):
+    """
+    Fallback/template path – same style as ai_generate_message.
+    """
+    return _build_outreach_message(company, profile_owner=profile_owner)
 
 
 # ------------------------
@@ -629,10 +653,10 @@ st.title("🧠 Cebron Outreach Engine (v1 – LinkedIn Focus)")
 st.markdown(
     """
 This app:
-1. Lets you define or select a **niche / ICP** for acquisition targets.
+1. Lets you **select or define** a niche / ICP for acquisition targets.
 2. Uses AI + web search to find **real companies** and **contacts** likely responsible for M&A / strategy / finance.
-3. Generates **short LinkedIn connection notes**.
-4. Lets you **select** contacts and **export** them as a CSV for tools like HeyReach.
+3. Generates **short, neutral LinkedIn connection notes** with rotating language.
+4. Lets you **edit details** and **export** to CSV for tools like HeyReach.
 """
 )
 
@@ -649,7 +673,7 @@ with st.sidebar:
     use_ai_messages = st.checkbox(
         "Use AI to generate connection messages",
         value=True,
-        help="If unchecked, will use a simpler template-based message.",
+        help="Currently uses deterministic templates either way; this toggle is kept for future expansion.",
     )
 
     st.markdown("---")
@@ -721,6 +745,7 @@ else:
         "Enter your ICP / niche (industry, size, geography):",
         placeholder="Describe your custom target niche...",
         height=140,
+        key="custom_icp_input",
     )
 
 st.text_area("Your ICP definition:", query, height=180, disabled=True, key="icp_display")
@@ -745,7 +770,6 @@ with col_clear:
         "Clear Last Search Results",
         key="clear_results_button",
     )
-
 
 if clear_results:
     st.session_state.last_search_results = []
@@ -813,7 +837,7 @@ elif not query.strip() and run_search:
 # ------------------------
 
 st.markdown("---")
-st.markdown("## 2️⃣ Review & Refine Companies + Contacts")
+st.markdown("## 2️⃣ Review, Edit & Refine Companies + Contacts")
 
 results = st.session_state.last_search_results
 
@@ -850,6 +874,45 @@ else:
                 if company.get("company_linkedin_url"):
                     st.write(f"Company LinkedIn: {company.get('company_linkedin_url')}")
 
+                st.markdown("### ✏️ Edit Contact Details")
+
+                edit_contact_name = st.text_input(
+                    "Contact Name",
+                    value=company.get("contact_name", ""),
+                    key=f"edit_contact_name_{i}",
+                )
+
+                edit_contact_title = st.text_input(
+                    "Contact Title",
+                    value=company.get("contact_title", ""),
+                    key=f"edit_contact_title_{i}",
+                )
+
+                edit_contact_linkedin = st.text_input(
+                    "Contact LinkedIn URL",
+                    value=company.get("linkedin_url", ""),
+                    key=f"edit_contact_linkedin_{i}",
+                )
+
+                edit_company_linkedin = st.text_input(
+                    "Company LinkedIn URL",
+                    value=company.get("company_linkedin_url", ""),
+                    key=f"edit_company_linkedin_{i}",
+                )
+
+                edit_contact_email = st.text_input(
+                    "Email (leave blank unless confirmed)",
+                    value=company.get("contact_email", ""),
+                    key=f"edit_contact_email_{i}",
+                )
+
+                # Save edits back into company record
+                company["contact_name"] = edit_contact_name
+                company["contact_title"] = edit_contact_title
+                company["linkedin_url"] = edit_contact_linkedin
+                company["company_linkedin_url"] = edit_company_linkedin
+                company["contact_email"] = edit_contact_email
+
                 st.markdown("**Candidate Contacts (for transparency)**")
                 candidates = company.get("candidates") or []
                 if not candidates:
@@ -880,10 +943,7 @@ else:
 
                 st.markdown("**Connection Message**")
                 if i not in st.session_state.messages:
-                    if use_ai_messages:
-                        msg = ai_generate_message(company, profile_owner=profile_owner)
-                    else:
-                        msg = generate_message(company, profile_owner=profile_owner)
+                    msg = ai_generate_message(company, profile_owner=profile_owner) if use_ai_messages else generate_message(company, profile_owner=profile_owner)
                     st.session_state.messages[i] = msg
 
                 msg_key = f"message_{i}"
@@ -904,7 +964,7 @@ st.markdown("---")
 st.markdown("## 3️⃣ Export")
 
 if results:
-    st.markdown("### Export Selected for HeyReach")
+    st.markdown("### Export Selected for HeyReach / LinkedIn")
 
     export_rows = []
     for i, company in enumerate(results):
@@ -941,7 +1001,6 @@ if results:
             mime="text/csv",
         )
 
-        # Minimal LinkedIn CSV export for generic LinkedIn tools
         minimal_rows = []
         for row in export_rows:
             full_name = row.get("contact_name", "") or ""
@@ -1017,19 +1076,22 @@ else:
     st.write(f"Showing {len(df_filtered)} companies out of {len(df_all)} total.")
 
     if not df_filtered.empty:
+        columns_to_show = [
+            "name",
+            "industry",
+            "location",
+            "revenue",
+            "contact_name",
+            "contact_title",
+            "company_linkedin_url",
+            "phone",
+            "added_at",
+        ]
+        for col in columns_to_show:
+            if col not in df_filtered.columns:
+                df_filtered[col] = ""
+
         st.dataframe(
-            df_filtered[
-                [
-                    "name",
-                    "industry",
-                    "location",
-                    "revenue",
-                    "contact_name",
-                    "contact_title",
-                    "company_linkedin_url",
-                    "phone",
-                    "added_at",
-                ]
-            ],
+            df_filtered[columns_to_show],
             use_container_width=True,
         )
