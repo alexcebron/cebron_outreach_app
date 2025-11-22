@@ -250,7 +250,7 @@ def ai_company_search(query: str, num_companies: int = 10):
     user_prompt = f"""
 Find approximately {num_companies} companies that match this query or niche:
 
-"{query}"
+\"{query}\"
 
 For each company:
 - Provide the fields required by the JSON schema (companies[].name, website, industry, location, revenue, linkedin_url, contact).
@@ -287,13 +287,6 @@ def ai_generate_message(company: dict, profile_owner: str = DEFAULT_PROFILE_OWNE
     revenue = company.get("revenue", "")
     contact_name = company.get("contact_name", "")
     contact_title = company.get("contact_title", "")
-    specific_detail = ""
-
-    if location:
-        specific_detail += f"{name} being based in {location} "
-    if industry:
-        specific_detail += f"in the {industry} space "
-    specific_detail = specific_detail.strip()
 
     user_prompt = f"""
 We are {profile_owner} at Cebron Group, a mid-market M&A advisory and roll-up platform builder.
@@ -449,7 +442,7 @@ def industry_to_outreach_angle(industry: str) -> str:
 
 
 # ------------------------
-# CONTACT SELECTION HEURISTICS (SCORE = likelihood of owning acquisitions)
+# CONTACT SELECTION HEURISTICS
 # ------------------------
 
 def _score_title_for_acquisitions(title: str) -> int:
@@ -636,7 +629,7 @@ st.title("🧠 Cebron Outreach Engine (v1 – LinkedIn Focus)")
 st.markdown(
     """
 This app:
-1. Lets you define a **niche / ICP** for acquisition targets.
+1. Lets you define or select a **niche / ICP** for acquisition targets.
 2. Uses AI + web search to find **real companies** and **contacts** likely responsible for M&A / strategy / finance.
 3. Generates **short LinkedIn connection notes**.
 4. Lets you **select** contacts and **export** them as a CSV for tools like HeyReach.
@@ -670,9 +663,12 @@ with st.sidebar:
             st.write(recap)
 
 
+# ------------------------
+# ICP / NICHE SELECTION
+# ------------------------
+
 st.markdown("## 1️⃣ Select Your ICP / Niche")
 
-# Full detailed ICP definitions
 cyber_icp = """
 US-based cybersecurity operators between $10M–$150M in annual revenue.
 Focus on: MSSPs, MDR providers, SOC-as-a-Service, incident response firms,
@@ -731,9 +727,6 @@ st.text_area("Your ICP definition:", query, height=180, disabled=True)
 
 num_companies = st.slider("Approx. number of companies to find:", 5, 30, 10)
 
-
-num_companies = st.slider("Approx. number of companies to find:", 5, 30, 10)
-
 col_search, col_clear = st.columns([3, 1])
 
 with col_search:
@@ -748,6 +741,10 @@ if clear_results:
     st.session_state.messages = {}
     st.experimental_rerun()
 
+
+# ------------------------
+# SEARCH EXECUTION
+# ------------------------
 
 if run_search and query.strip():
     with st.spinner("Running AI search for companies and contacts..."):
@@ -796,8 +793,12 @@ if run_search and query.strip():
     st.session_state.messages = {}
     st.success(f"Found {len(results)} companies. See below.")
 elif not query.strip() and run_search:
-    st.warning("Please enter a description or niche to search for.")
+    st.warning("Please enter or select a description / niche to search for.")
 
+
+# ------------------------
+# RESULTS REVIEW
+# ------------------------
 
 st.markdown("---")
 st.markdown("## 2️⃣ Review & Refine Companies + Contacts")
@@ -805,7 +806,7 @@ st.markdown("## 2️⃣ Review & Refine Companies + Contacts")
 results = st.session_state.last_search_results
 
 if not results:
-    st.info("No search results yet. Define your ICP above and click 'Search Companies + Contacts'.")
+    st.info("No search results yet. Select your ICP above and click 'Search Companies + Contacts'.")
 else:
     for i, company in enumerate(results):
         with st.expander(
@@ -882,6 +883,11 @@ else:
                 )
                 st.session_state.messages[i] = new_msg
 
+
+# ------------------------
+# EXPORT
+# ------------------------
+
 st.markdown("---")
 st.markdown("## 3️⃣ Export")
 
@@ -922,6 +928,7 @@ if results:
             file_name="cebron_linkedin_outreach.csv",
             mime="text/csv",
         )
+
         # Minimal LinkedIn CSV export for generic LinkedIn tools
         minimal_rows = []
         for row in export_rows:
@@ -952,6 +959,7 @@ if results:
                 file_name="cebron_linkedin_minimal.csv",
                 mime="text/csv",
             )
+
 
 # ------------------------
 # HISTORY / MASTER LIST VIEW
