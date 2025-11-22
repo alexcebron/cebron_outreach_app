@@ -242,8 +242,9 @@ For each company:
 - Provide the fields required by the JSON schema (companies[].name, website, industry, location, revenue, linkedin_url, contact).
 - Only provide LinkedIn URLs that you can actually find and match. If you are not sure, leave linkedin_url BLANK instead of guessing.
 
-Focus strongly on B2B operators that might fit a mid-market roll-up strategy
-$10M - $500M revenue, or similar scale, when possible.
+Prefer B2B operators that could fit a mid-market roll-up strategy
+(roughly $10M - $500M revenue), but if you cannot find enough in that range,
+you may include smaller or larger companies rather than returning nothing.
 """
     schema = {
         "type": "json_schema",
@@ -429,10 +430,10 @@ def _build_outreach_message(company: dict, profile_owner: str = DEFAULT_PROFILE_
     Deterministic, template-based outreach message generator.
 
     Rules:
-    - No compliments (no 'impressed', 'amazing', etc.).
+    - No compliments.
     - Always reference company and space.
     - Rotate language via random choice of intros/middles/closers.
-    - Keep under ~280 characters.
+    - Hard cap: <= 260 characters.
     """
 
     firm = "Cebron Group"
@@ -451,43 +452,42 @@ def _build_outreach_message(company: dict, profile_owner: str = DEFAULT_PROFILE_
 
     title = company.get("contact_title") or ""
 
-    # Intros (no compliments)
+    # Short intros, no fluff
     intros = [
-        "{first}, I lead M&A work at {firm} focused on {angle}.",
-        "{first}, I work with {firm} on acquisitions across {angle}.",
-        "Hi {first}, at {firm} I focus on acquisitions and roll-ups in {angle}.",
-        "{first}, I support {firm}'s M&A efforts around {angle}.",
+        "{first}, I handle M&A at {firm} in {angle}.",
+        "{first}, I work on acquisitions at {firm} across {angle}.",
+        "Hi {first}, I focus on M&A and roll-ups at {firm} in {angle}.",
+        "{first}, I support {firm}'s acquisition work in {angle}.",
     ]
 
-    # Company/context lines
+    # Company/context lines – neutral
     company_lines = [
-        "I'm mapping out operators like {company} in this space.",
-        "I'm building a view of mid-market groups like {company} across the market.",
+        "I'm mapping out operators like {company}.",
         "{company} came up as I was reviewing platforms in your space.",
-        "I'm cataloguing operators like {company} as we look at potential partners.",
+        "I'm building a view of mid-market groups like {company}.",
+        "I'm cataloguing operators like {company} as we assess potential partners.",
     ]
 
-    # Role lines
     if title:
         role_lines = [
-            "Given your role as {title} at {company}, I thought it made sense to connect.",
-            "Your position as {title} at {company} puts you close to the kinds of decisions we usually support.",
+            "Given your role as {title} at {company}, a connection felt practical.",
+            "Your position as {title} at {company} sits close to the decisions we usually support.",
         ]
     else:
         role_lines = [
-            "Given where {company} sits in the market, I thought it made sense to connect.",
+            "Given where {company} sits in the market, a connection seemed practical.",
         ]
 
-    # Closers
+    # Short, neutral closers
     closers = [
         "Thought it made sense to connect and compare notes.",
-        "Figured a connection could be useful as we both watch where the market is heading.",
-        "If you're open to it, I'd welcome a connection in case our paths cross on deals.",
-        "No agenda on my side—just looking to connect with operators in this ecosystem.",
+        "Figured a connection could be useful as the market evolves.",
+        "If you're open to it, a simple connection could be useful down the line.",
+        "No agenda—just connecting with operators in this ecosystem.",
     ]
 
     intro = random.choice(intros).format(
-        first=first_name or "I",
+        first=first_name or "there",
         firm=firm,
         angle=angle,
     )
@@ -498,6 +498,7 @@ def _build_outreach_message(company: dict, profile_owner: str = DEFAULT_PROFILE_
         company=company_name,
     )
 
+    # Keep middle lean
     middle_options = [
         f"{company_line} {role_line}",
         company_line,
@@ -510,8 +511,9 @@ def _build_outreach_message(company: dict, profile_owner: str = DEFAULT_PROFILE_
     msg = f"{intro} {middle} {closer}"
     msg = " ".join(msg.split())
 
-    if len(msg) > 280:
-        msg = msg[:270].rstrip() + "…"
+    # Hard cap at 260 chars
+    if len(msg) > 260:
+        msg = msg[:250].rstrip() + "…"
 
     return msg
 
@@ -677,6 +679,16 @@ with st.sidebar:
     )
 
     st.markdown("---")
+    allow_ai_linkedin = st.checkbox(
+        "Keep AI-suggested LinkedIn URLs (may be unreliable)",
+        value=False,
+        help=(
+            "If unchecked, company and contact LinkedIn URLs from the AI search will be left blank "
+            "so you can fill them manually."
+        ),
+    )
+
+    st.markdown("---")
     st.markdown("**History recap**")
     if st.button("Summarize existing master list"):
         if not st.session_state.all_results:
@@ -786,6 +798,13 @@ if run_search and query.strip():
     with st.spinner("Running AI search for companies and contacts..."):
         companies = ai_company_search(query, num_companies=num_companies)
 
+    if not companies:
+        st.warning(
+            "No companies were returned for this ICP. This is a limitation of the AI search, "
+            "not your input. Try a slightly simpler 'Custom' ICP description (e.g. "
+            "'US-based medical device manufacturers between $10M–$150M revenue')."
+        )
+
     results = []
     now_str = datetime.utcnow().isoformat()
 
@@ -803,6 +822,16 @@ if run_search and query.strip():
         contact_title = safe_get(contact_obj, "title")
         contact_linkedin = safe_get(contact_obj, "linkedin_url")
         contact_email = safe_get(contact_obj, "email")
+
+        # Filter AI-suggested LinkedIn URLs based on toggle
+        if not allow_ai_linkedin:
+            linkedin_url = ""
+            contact_linkedin = ""
+        else:
+            if linkedin_url and "linkedin.com" not in linkedin_url.lower():
+                linkedin_url = ""
+            if contact_linkedin and "linkedin.com" not in contact_linkedin.lower():
+                contact_linkedin = ""
 
         result_rec = {
             "name": name,
@@ -827,7 +856,8 @@ if run_search and query.strip():
     st.session_state.last_search_results = results
     st.session_state.selected = {}
     st.session_state.messages = {}
-    st.success(f"Found {len(results)} companies. See below.")
+    if companies:
+        st.success(f"Found {len(results)} companies. See below.")
 elif not query.strip() and run_search:
     st.warning("Please enter or select a description / niche to search for.")
 
